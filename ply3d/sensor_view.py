@@ -71,6 +71,8 @@ create_plyfile_and_folder_dict(plyfolder_path, type_folder)
 
 # Webサーバ
 app = dash.Dash(__name__, static_folder='static')
+app.css.append_css(
+    {'external_url': 'https://rawgit.com/s4i/Sensor_view/master/static/css/config.css'})
 
 colors = {
     'background': '#ffffff',
@@ -200,14 +202,64 @@ def set_filename(available_options):
     events=[Event('refresh_interval1', 'interval')])
 def three_demention_model_viewer(selected_filename, selected_type):
     global plyfile_dict
+    sensor.update_sensor()
+    x_axis, y_axis, z_axis = sensor.three_axis()
+
     fig = plotly.tools.make_subplots(
         rows=1,
         cols=1,
         specs=[[{'is_3d': True}]]
     )
-    sensor.update_sensor()
-    vc.viewer(fig, sensor.three_axis(), selected_filename,
-              plyfile_dict)  # view_control.py
+
+    # 枠線、罫線なし
+    noaxis = dict(
+        showbackground=False,
+        showline=False,
+        zeroline=False,
+        showgrid=False,
+        showticklabels=False,
+        title=''
+    )
+
+    x_cam = x_axis/150.0
+    y_cam = y_axis/150.0
+    z_cam = z_axis/150.0
+
+    if -1.0 < x_cam and x_cam < 1.0:
+        x_cam = 1.0
+    if -1.0 < y_cam and y_cam < 1.0:
+        y_cam = -1.0
+    if -1.0 < z_cam and z_cam < 1.0:
+        z_cam = 1.0
+
+    fig['layout'].update(
+        dict(
+            autosize=True,
+            # width=900,  # autosize or manual size
+            height=550,
+            scene=dict(
+                xaxis=noaxis,
+                yaxis=noaxis,
+                zaxis=noaxis,
+                aspectratio=dict(x=1.6, y=1.6, z=0.8),  # Front position
+                camera=dict(
+                    eye=dict(
+                        x=x_cam,  # 1.25 -> x_cam
+                        y=y_cam,  # 1.25 -> y_cam
+                        z=z_cam,  # 1.25 -> z_cam
+                    )
+                )
+            )
+        )
+    )
+
+    fig['layout']['margin'] = {'l': 0, 'r': 0, 'b': 0, 't': 0}
+
+    data3 = vc.viewer(fig, selected_filename, plyfile_dict)  # view_control.py
+
+    # Subplot descript
+    fig.append_trace(data3, 1, 1)
+
     return fig
 
 
@@ -227,7 +279,7 @@ def plot_colorful_graph(fig):
 
     # Create the graph with subplots
     fig['layout']['margin'] = {
-        'l': 30, 'r': 20, 'b': 50, 't': 30
+        'l': 30, 'r': 20, 'b': 50, 't': 0
     }
     fig['layout']['plot_bgcolor'] = colors['plot_area']
     fig['layout']['paper_bgcolor'] = colors['background']
