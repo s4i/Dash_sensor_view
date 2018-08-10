@@ -1,3 +1,4 @@
+import concurrent.futures as pool
 import dash
 from dash.dependencies import Input, Output, Event
 import dash_core_components as dcc
@@ -9,6 +10,19 @@ from numba import jit
 import numpy as np
 import os
 import ply3d.view_control as vc
+from ply3d.class_sensor import Sensor_value
+import time
+
+
+def main():
+    # Webサーバ起動
+    app.run_server(host='localhost', port=5000, debug=True,
+                   threaded=True)
+
+
+'''
+plyファイル(3Dオブジェクト)の検索
+'''
 
 
 @jit
@@ -70,7 +84,7 @@ print(value) # 'ply3d/ply/food/apple.ply'
 create_plyfile_and_folder_dict(plyfolder_path, type_folder)
 
 # Webサーバ
-app = dash.Dash(__name__, static_folder='static')
+app = dash.Dash(name=__name__)
 app.css.append_css(
     {'external_url': 'https://rawgit.com/s4i/Sensor_view/master/static/css/config.css'})
 
@@ -80,16 +94,44 @@ colors = {
     'text': '#000000',
 }
 
-# ページの描写
+'''
+センサー値関連
+'''
+# Instance
+sensor = Sensor_value()
+
+'''
+update_metrics関数で利用
+'''
+
+
+def update_sensor():
+    '''
+    isRandをTrueにするとclass_sensor.pyにおいて、
+    乱数が生成され、それが使われる。
+    Falseの場合、x,y,zに入った値を反映できる。
+    '''
+    sensor.update_sensor(isRandom=True,
+                         single=100, x=1023, y=1023, z=1023,
+                         )
+
+
+'''
+ページの描写関連
+'''
 app.title = 'Nagasaka Lab'
 app.layout = html.Div([html.Meta(
     content='width=device-width, initial-scale=1.0'),
     html.Div([
-        html.Div('3Dモデル切り替え',
-                 style={'color': 'blue',
-                        'fontsize': 16,
+        html.Div('センサ値',
+                 style={'color': 'red',
+                        'fontsize': 12,
                         'font-weight': 'bold'}),
         html.Div(id='live-update-text'),
+        html.Div('3Dモデル切り替え',
+                 style={'color': 'blue',
+                        'fontsize': 12,
+                        'font-weight': 'bold'}),
         dcc.RadioItems(
             id='type-dropdown',
             options=[{'label': k, 'value': k}
@@ -110,74 +152,43 @@ app.layout = html.Div([html.Meta(
         dcc.Interval(
             id='refresh_interval1',
             interval=3*1000,  # in milliseconds
-            n_intervals=0,
         ),
         dcc.Interval(
             id='refresh_interval2',
-            interval=2*1000,  # in milliseconds
+            interval=3*1000,  # in milliseconds
         ),
     ]),
 ], style={'backgroundColor': colors['background'], 'color': colors['text']})
 
 
-class Context:
-    def __init__(self):
-        self.t = []  # X-axis time
-        self.pyroelectric_sensor = []
-
-    @classmethod
-    @jit
-    def append_data(cls, d1, d2):
-        n = len(d1)
-        if n > 100:
-            del d1[0: n - 99]
-        d1.append(d2)
-
-
-# Instance
-context = Context()
-
-
-class Random_data:
-    def __init__(self):
-        self.single_val = 0
-        self.x = 0
-        self.y = 0
-        self.z = 0
-
-    def start_sensor(self):
-        self.single_val = np.random.randint(0, 100)
-        self.x = int(np.random.randint(0, 999) / 3.92)
-        self.y = int(np.random.randint(0, 999) / 3.92)
-        self.z = int(np.random.randint(0, 999) / 3.92)
-
-    def update_sensor(self):
-        self.single_val = np.random.randint(0, 100)
-        self.x = int(np.random.randint(0, 999) / 3.92)
-        self.y = int(np.random.randint(0, 999) / 3.92)
-        self.z = int(np.random.randint(0, 999) / 3.92)
-
-    def three_axis(self):
-        return [self.x, self.y, self.z]
-
-    def zero_to_hundred(self):
-        return self.single_val
-
-
-# Instance
-sensor = Random_data()
-sensor.start_sensor()
-
-
 @app.callback(Output('live-update-text', 'children'),
               events=[Event('refresh_interval1', 'interval')])
 def update_metrics():
-    x_axis, y_axis, z_axis = sensor.three_axis()
+    update_sensor()
+    pyro = sensor.get_zero_to_hundred()
+    x_axis, y_axis, z_axis = sensor.get_three_axis()
+
+    x_axis = x_axis-510
+    y_axis = y_axis-510
+    cameraThe = ((x_axis + (90-((1024/2)*(1.65/2.5))/4)) * np.pi/180)
+    cameraPhi = ((y_axis - (((1024/2)*(1.65/2.5))/4-45)) * np.pi/180)
+    x_cam = np.cos(cameraThe) * np.cos(cameraPhi)
+    y_cam = np.sin(cameraPhi)
+    z_cam = np.sin(cameraThe) * np.cos(cameraPhi)
+
     style = {'padding': '5px', 'fontSize': '16px'}
     return [
-        html.Span('X: {}'.format(x_axis), style=style),
-        html.Span('Y: {}'.format(y_axis), style=style),
-        html.Span('Z: {}'.format(z_axis), style=style)
+        html.Span('3軸加速度センサ:', style=style),
+        html.Span('X軸({:4d})'.format(x_axis), style=style),
+        html.Span('Y軸({:4d})'.format(y_axis), style=style),
+        html.Span('Z軸({:4d})'.format(z_axis), style=style),
+        html.Span('焦電センサ', style=style),
+        html.Span('({:3d})'.format(pyro), style=style),
+        html.Div(),
+        html.Span(' カメラ位置:', style=style),
+        html.Span('X軸({:3.3f})'.format(x_cam), style=style),
+        html.Span('Y軸({:3.3f})'.format(y_cam), style=style),
+        html.Span('Z軸({:3.3f})'.format(z_cam), style=style),
     ]
 
 
@@ -202,8 +213,7 @@ def set_filename(available_options):
     events=[Event('refresh_interval1', 'interval')])
 def three_demention_model_viewer(selected_filename, selected_type):
     global plyfile_dict
-    sensor.update_sensor()
-    x_axis, y_axis, z_axis = sensor.three_axis()
+    x_axis, y_axis, z_axis = sensor.get_three_axis()
 
     fig = plotly.tools.make_subplots(
         rows=1,
@@ -221,22 +231,40 @@ def three_demention_model_viewer(selected_filename, selected_type):
         title=''
     )
 
+    '''
     x_cam = x_axis/150.0
     y_cam = y_axis/150.0
     z_cam = z_axis/150.0
+    '''
 
+    #cameraRadius = 0.1
+
+    cameraThe = ((x_axis + (90-((1024/2)*(1.65/2.5))/4)) * np.pi/180)
+    cameraPhi = ((y_axis - (((1024/2)*(1.65/2.5))/4-45)) * np.pi/180)
+    # Z軸は使わない
+    '''
+    x_cam = cameraRadius * np.cos(cameraThe) * np.cos(cameraPhi)
+    y_cam = cameraRadius * np.sin(cameraPhi)
+    z_cam = cameraRadius * np.sin(cameraThe) * np.cos(cameraPhi)
+    '''
+    x_cam = np.cos(cameraThe) * np.cos(cameraPhi)
+    y_cam = np.sin(cameraPhi)
+    z_cam = np.sin(cameraThe) * np.cos(cameraPhi)
+
+    '''
     if -1.0 < x_cam and x_cam < 1.0:
         x_cam = 1.0
     if -1.0 < y_cam and y_cam < 1.0:
         y_cam = -1.0
     if -1.0 < z_cam and z_cam < 1.0:
         z_cam = 1.0
+    '''
 
     fig['layout'].update(
         dict(
             autosize=True,
             # width=900,  # autosize or manual size
-            height=550,
+            height=590,
             scene=dict(
                 xaxis=noaxis,
                 yaxis=noaxis,
@@ -244,9 +272,9 @@ def three_demention_model_viewer(selected_filename, selected_type):
                 aspectratio=dict(x=1.6, y=1.6, z=0.8),  # Front position
                 camera=dict(
                     eye=dict(
-                        x=x_cam,  # 1.25 -> x_cam
-                        y=y_cam,  # 1.25 -> y_cam
-                        z=z_cam,  # 1.25 -> z_cam
+                        x=x_cam,
+                        y=y_cam,
+                        z=z_cam,
                     )
                 )
             )
@@ -254,7 +282,6 @@ def three_demention_model_viewer(selected_filename, selected_type):
     )
 
     fig['layout']['margin'] = {'l': 0, 'r': 0, 'b': 0, 't': 0}
-
     data3 = vc.viewer(fig, selected_filename, plyfile_dict)  # view_control.py
 
     # Subplot descript
@@ -272,39 +299,62 @@ def graph_setting():
     return fig
 
 
+class Context:
+    def __init__(self):
+        self.t = []  # X-axis time
+        self.zero_to_hundred = []
+
+    @classmethod
+    @jit
+    def append_data(cls, d1, d2):
+        n = len(d1)
+        if n > 8:
+            del d1[0: n - 7]
+        d1.append(d2)
+
+
+# Instance
+context = Context()
+
+
 def plot_colorful_graph(fig):
-    x_axis, y_axis, z_axis = sensor.three_axis()
+    x_axis, y_axis, z_axis = sensor.get_three_axis()
+
     context.append_data(context.t, datetime.datetime.now())
-    context.append_data(context.pyroelectric_sensor, np.random.randint(0, 100))
+    context.append_data(context.zero_to_hundred, sensor.get_zero_to_hundred())
 
     # Create the graph with subplots
     fig['layout']['margin'] = {
-        'l': 30, 'r': 20, 'b': 50, 't': 0
+        'l': 30, 'r': 20, 'b': 30, 't': 0
     }
     fig['layout']['plot_bgcolor'] = colors['plot_area']
     fig['layout']['paper_bgcolor'] = colors['background']
     fig['layout']['font'] = {'color': colors['text']}
     fig['layout']['yaxis1'].update(
-        range=[0, 119]
+        range=[0, 115]
     )
     fig['layout']['showlegend'] = False
     fig['layout'].update(
         dict(
             autosize=True,
             # width=900,  # autosize or manual size
-            height=300,
+            height=200,
         )
     )
     next_graph_setting = dict(
         x=context.t,
-        y=context.pyroelectric_sensor,
+        y=context.zero_to_hundred,
         name='sensor',
         mode='lines+markers+text',
-        text=context.pyroelectric_sensor,
+        text=context.zero_to_hundred,
         textposition='top center',
         fill='tonexty',
         # color setting
-        fillcolor='rgba({0},{1},{2},{3})'.format(x_axis, y_axis, z_axis, 0.5),
+        fillcolor='rgba({0},{1},{2},{3})'.format(
+            int(x_axis >> 2),
+            int(y_axis >> 2),
+            int(z_axis >> 2),
+             0.5),
         line=dict(color='rgba({0},{1},{2},{3})'.format(
             x_axis, y_axis, z_axis, 1.0)),
     )
@@ -314,6 +364,7 @@ def plot_colorful_graph(fig):
 
 '''
 def plot_colorful_cercle(fig):
+    x_axis,y_axis,z_axis = sensor.get_three_axis()
     # Create the cercle with subplots
     trace1 = go.Scatter(
         x=[0],
@@ -322,15 +373,15 @@ def plot_colorful_cercle(fig):
         marker=dict(
             size=200,
             color='rgb({0},{1},{2},{3})'.format(
-                sensor.rgb_val[0],
-                sensor.rgb_val[1],
-                sensor.rgb_val[2],
+                int(x_axis>>2),
+                int(y_axis>>2),
+                int(z_axis>>2),
                 0.5),
             colorscale='Viridis',
             line=dict(color='rgba({0},{1},{2},{3})'.format(
-                sensor.rgb_val[0],
-                sensor.rgb_val[1],
-                sensor.rgb_val[2],
+                int(x_axis>>2),
+                int(y_axis>>2),
+                int(z_axis>>2),
                 1.0))
         )
     )

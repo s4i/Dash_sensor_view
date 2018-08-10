@@ -33,7 +33,7 @@ def get_plyfile_list():
     # 辞書化する関数に渡す
     global type_folder
     global folder_dict
-    plyfolder_path = 'ply'
+    plyfolder_path = '../ply'
     for folder_name in type_folder:
         search_folder_path = plyfolder_path + '/' + folder_name + '/'
         plyfile_list = plyfile_search(search_folder_path)
