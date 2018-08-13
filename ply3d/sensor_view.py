@@ -1,4 +1,3 @@
-import concurrent.futures as pool
 import dash
 from dash.dependencies import Input, Output, Event
 import dash_core_components as dcc
@@ -11,18 +10,18 @@ import numpy as np
 import os
 import ply3d.view_control as vc
 from ply3d.class_sensor import Sensor_value
-import time
 
 
 def main():
     # Webサーバ起動
-    app.run_server(host='localhost', port=5000, debug=True,
+    '''
+    host:     ホストアドレス
+    port:     使用するポート
+    debug:    ソースコードの更新の度に適用
+    threaded: Dash(ベースはFlask)にスレッドの利用を許可
+    '''
+    app.run_server(host='0.0.0.0', port=5000, debug=True,
                    threaded=True)
-
-
-'''
-plyファイル(3Dオブジェクト)の検索
-'''
 
 
 @jit
@@ -31,6 +30,7 @@ def plyfile_search(folder_path):
     ply_file = []
     for file in os.listdir(folder_path):
         if file.endswith(".ply"):
+            # ['apple', '.ply']
             ply_file.append(''.join(os.path.splitext(file)[0]))
     return ply_file
 
@@ -83,10 +83,13 @@ print(value) # 'ply3d/ply/food/apple.ply'
 '''
 create_plyfile_and_folder_dict(plyfolder_path, type_folder)
 
-# Webサーバ
-app = dash.Dash(name=__name__)
+# Webサーバ設定
+app = dash.Dash(name=__name__, static_folder='static')
+# CSS設定(ローカルファイルパスでの指定はNG)
+# app.css.append_css(
+#    {'external_url': 'https://rawgit.com/s4i/Sensor_view/master/static/css/config.css'})
 app.css.append_css(
-    {'external_url': 'https://rawgit.com/s4i/Sensor_view/master/static/css/config.css'})
+    {'external_url': 'https://192.168.0.4/static/css/config.css'})
 
 colors = {
     'background': '#ffffff',
@@ -100,20 +103,81 @@ colors = {
 # Instance
 sensor = Sensor_value()
 
-'''
-update_metrics関数で利用
-'''
-
 
 def update_sensor():
     '''
+    update_metrics関数で利用
     isRandをTrueにするとclass_sensor.pyにおいて、
     乱数が生成され、それが使われる。
     Falseの場合、x,y,zに入った値を反映できる。
     '''
-    sensor.update_sensor(isRandom=True,
-                         single=100, x=1023, y=1023, z=1023,
+    sensor.update_sensor(isRandom=False,
+                         pyro=100,
+                         x=500, y=500, z=500,
                          )
+
+
+'''
+カメラ位置関連
+'''
+camX, camY, camZ = 0, 0, 0
+
+
+def initial_position(x, y, z):
+    global camX
+    global camY
+    global camZ
+    # 起動時に毎回、同じ位置にカメラを置くため、値を修正
+    if (500 < x and x < 599):
+        x_axis = 500
+    else:
+        x_axis = x
+    if (500 < y and y < 599):
+        y_axis = 500
+    else:
+        y_axis = y
+
+    # 基本となるカメラ座標を計算
+    cameraRadius = 2
+    cameraThe = ((x_axis + (90-((1024/2)*(1.65/2.5))/4)) * np.pi/180)
+    cameraPhi = ((y_axis - (((1024/2)*(1.65/2.5))/4-45)) * np.pi/180)
+
+    # グローバル変数への代入
+    camX = cameraRadius * np.cos(cameraThe) * np.cos(cameraPhi)
+    camY = cameraRadius * np.sin(cameraPhi)
+    camZ = 0  # z軸は使わず、0を代入
+
+
+def camera_position(x, y, z):
+    global camX
+    global camY
+    global camZ
+
+    if camX == 0:
+        initial_position(x, y, z)
+
+    '''
+    加速度を利用し、カメラを操作する
+    '''
+    # 0G(加速度0=傾き無しの初期位置)の数値を入れる
+    x0, y0, z0 = 511, 502, 502
+    # 1G(加速度1=傾き90度)の数値から0Gの数値を引いた数値を入れる
+    x1, y1, z1 = 230, 230, 190
+
+    x_accel = ((x / 100) - x0) / x1
+    y_accel = ((y / 100) - y0) / y1
+    z_accel = ((z / 100) - z0) / z1
+
+    if (x_accel > 0.03):
+        camX = camX + x_accel
+
+    if (x_accel > 0.03):
+        camY = camY + y_accel
+
+    if (x_accel > 0.03):
+        camY = camY + z_accel
+
+    return [camX, camY, camZ]
 
 
 '''
@@ -164,27 +228,23 @@ app.layout = html.Div([html.Meta(
 @app.callback(Output('live-update-text', 'children'),
               events=[Event('refresh_interval1', 'interval')])
 def update_metrics():
+    # センサ値更新
     update_sensor()
-    pyro = sensor.get_zero_to_hundred()
-    x_axis, y_axis, z_axis = sensor.get_three_axis()
 
-    x_axis = x_axis-510
-    y_axis = y_axis-510
-    cameraThe = ((x_axis + (90-((1024/2)*(1.65/2.5))/4)) * np.pi/180)
-    cameraPhi = ((y_axis - (((1024/2)*(1.65/2.5))/4-45)) * np.pi/180)
-    x_cam = np.cos(cameraThe) * np.cos(cameraPhi)
-    y_cam = np.sin(cameraPhi)
-    z_cam = np.sin(cameraThe) * np.cos(cameraPhi)
+    # センサ値取得
+    pyro = sensor.get_zero_to_hundred()
+    x, y, z = sensor.get_three_axis()
+    x_cam, y_cam, z_cam = camera_position(x, y, z)
 
     style = {'padding': '5px', 'fontSize': '16px'}
     return [
         html.Span('3軸加速度センサ:', style=style),
-        html.Span('X軸({:4d})'.format(x_axis), style=style),
-        html.Span('Y軸({:4d})'.format(y_axis), style=style),
-        html.Span('Z軸({:4d})'.format(z_axis), style=style),
+        html.Span('X軸({:4d})'.format(x), style=style),
+        html.Span('Y軸({:4d})'.format(y), style=style),
+        html.Span('Z軸({:4d})'.format(z), style=style),
         html.Span('焦電センサ', style=style),
         html.Span('({:3d})'.format(pyro), style=style),
-        html.Div(),
+        html.Div(),  # 改行
         html.Span(' カメラ位置:', style=style),
         html.Span('X軸({:3.3f})'.format(x_cam), style=style),
         html.Span('Y軸({:3.3f})'.format(y_cam), style=style),
@@ -212,9 +272,6 @@ def set_filename(available_options):
      Input('type-dropdown', 'value')],
     events=[Event('refresh_interval1', 'interval')])
 def three_demention_model_viewer(selected_filename, selected_type):
-    global plyfile_dict
-    x_axis, y_axis, z_axis = sensor.get_three_axis()
-
     fig = plotly.tools.make_subplots(
         rows=1,
         cols=1,
@@ -232,33 +289,10 @@ def three_demention_model_viewer(selected_filename, selected_type):
     )
 
     '''
-    x_cam = x_axis/150.0
-    y_cam = y_axis/150.0
-    z_cam = z_axis/150.0
+    カメラ位置
     '''
-
-    #cameraRadius = 0.1
-
-    cameraThe = ((x_axis + (90-((1024/2)*(1.65/2.5))/4)) * np.pi/180)
-    cameraPhi = ((y_axis - (((1024/2)*(1.65/2.5))/4-45)) * np.pi/180)
-    # Z軸は使わない
-    '''
-    x_cam = cameraRadius * np.cos(cameraThe) * np.cos(cameraPhi)
-    y_cam = cameraRadius * np.sin(cameraPhi)
-    z_cam = cameraRadius * np.sin(cameraThe) * np.cos(cameraPhi)
-    '''
-    x_cam = np.cos(cameraThe) * np.cos(cameraPhi)
-    y_cam = np.sin(cameraPhi)
-    z_cam = np.sin(cameraThe) * np.cos(cameraPhi)
-
-    '''
-    if -1.0 < x_cam and x_cam < 1.0:
-        x_cam = 1.0
-    if -1.0 < y_cam and y_cam < 1.0:
-        y_cam = -1.0
-    if -1.0 < z_cam and z_cam < 1.0:
-        z_cam = 1.0
-    '''
+    x, y, z = sensor.get_three_axis()  # class_sensor.py
+    x_cam, y_cam, z_cam = camera_position(x, y, z)
 
     fig['layout'].update(
         dict(
@@ -280,9 +314,11 @@ def three_demention_model_viewer(selected_filename, selected_type):
             )
         )
     )
-
     fig['layout']['margin'] = {'l': 0, 'r': 0, 'b': 0, 't': 0}
-    data3 = vc.viewer(fig, selected_filename, plyfile_dict)  # view_control.py
+
+    global plyfile_dict
+    # view_control.py
+    data3 = vc.viewer(fig, selected_filename, plyfile_dict)
 
     # Subplot descript
     fig.append_trace(data3, 1, 1)
@@ -318,7 +354,8 @@ context = Context()
 
 
 def plot_colorful_graph(fig):
-    x_axis, y_axis, z_axis = sensor.get_three_axis()
+    # class_sensor.py
+    x, y, z = sensor.get_three_axis()
 
     context.append_data(context.t, datetime.datetime.now())
     context.append_data(context.zero_to_hundred, sensor.get_zero_to_hundred())
@@ -351,37 +388,41 @@ def plot_colorful_graph(fig):
         fill='tonexty',
         # color setting
         fillcolor='rgba({0},{1},{2},{3})'.format(
-            int(x_axis >> 2),
-            int(y_axis >> 2),
-            int(z_axis >> 2),
-             0.5),
+            int(x >> 2),  # 1023 >> 2 => 255
+            int(y >> 2),
+            int(z >> 2),
+            0.5),
         line=dict(color='rgba({0},{1},{2},{3})'.format(
-            x_axis, y_axis, z_axis, 1.0)),
+            int(x >> 2),
+            int(y >> 2),
+            int(z >> 2),
+            1.0)),
     )
-
     fig.append_trace(next_graph_setting, 1, 1)
 
 
 '''
 def plot_colorful_cercle(fig):
-    x_axis,y_axis,z_axis = sensor.get_three_axis()
+    # class_sensor.py
+    x,y,z = sensor.get_three_axis()
     # Create the cercle with subplots
     trace1 = go.Scatter(
+        #中心位置
         x=[0],
         y=[0],
         mode='markers',
         marker=dict(
             size=200,
             color='rgb({0},{1},{2},{3})'.format(
-                int(x_axis>>2),
-                int(y_axis>>2),
-                int(z_axis>>2),
+                int(x >> 2),
+                int(y >> 2),
+                int(z >> 2),
                 0.5),
             colorscale='Viridis',
             line=dict(color='rgba({0},{1},{2},{3})'.format(
-                int(x_axis>>2),
-                int(y_axis>>2),
-                int(z_axis>>2),
+                int(x >> 2),
+                int(y >> 2),
+                int(z >> 2),
                 1.0))
         )
     )
