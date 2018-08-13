@@ -84,10 +84,8 @@ create_plyfile_and_folder_dict(plyfolder_path, type_folder)
 # Webサーバ設定
 app = dash.Dash(name=__name__, static_folder='static')
 # CSS設定(ローカルファイルパスでの指定はNG)
-# app.css.append_css(
-#    {'external_url': 'https://rawgit.com/s4i/Sensor_view/master/static/css/config.css'})
 app.css.append_css(
-    {'external_url': 'https://192.168.0.4/static/css/config.css'})
+    {'external_url': 'https://rawgit.com/s4i/Sensor_view/master/static/css/config.css'})
 
 colors = {
     'background': '#ffffff',
@@ -109,7 +107,7 @@ def update_sensor():
     乱数が生成され、それが使われる。
     Falseの場合、x,y,zに入った値を反映できる。
     '''
-    sensor.update_sensor(isRandom=False,
+    sensor.update_sensor(isRandom=True,
                          pyro=100,
                          x=500, y=500, z=500,
                          )
@@ -165,34 +163,27 @@ def camera_position(x, y, z):
             sum_count = sum_count - 1
 
         else:
-            ave_x = sumX / 10
-            ave_y = sumY / 10
-            ave_z = sumZ / 10
-
             # 加速度を利用し、カメラを操作する
             # 0G(加速度0=傾き無しの初期位置)の数値を入れる
             x0, y0, z0 = 511, 502, 502
             # 1G(加速度1=傾き90度)の数値から0Gの数値を引いた数値を入れる
             x1, y1, z1 = 230, 230, 190
 
-            x_accel = ((ave_x / 100) - x0) / x1
-            y_accel = ((ave_y / 100) - y0) / y1
-            z_accel = ((ave_z / 100) - z0) / z1
+            sum_x, sum_y, sum_z = sumX, sumY, sumZ
 
-            if (x_accel > 0.5):
+            # initialize
+            sumX, sumY, sumZ, sum_count = 0, 0, 0, 5
+
+            x_accel = ((sum_x / sum_count) - x0) / x1
+            y_accel = ((sum_y / sum_count) - y0) / y1
+            z_accel = ((sum_z / sum_count) - z0) / z1
+
+            if (x_accel > 0.45):
                 camX = camX + x_accel
-
-            if (x_accel > 0.5):
+            if (x_accel > 0.45):
                 camY = camY + y_accel
-
-            if (x_accel > 0.5):
+            if (x_accel > 0.45):
                 camY = camY + z_accel
-
-            # init
-            sumX = 0
-            sumY = 0
-            sumZ = 0
-            sum_count = 5
 
     return [camX, camY, camZ]
 
@@ -289,10 +280,11 @@ def set_filename(available_options):
      Input('type-dropdown', 'value')],
     events=[Event('refresh_interval1', 'interval')])
 def three_demention_model_viewer(selected_filename, selected_type):
+    # Subplot を作成
     fig = plotly.tools.make_subplots(
         rows=1,
         cols=1,
-        specs=[[{'is_3d': True}]]
+        specs=[[{'is_3d': True}]]  # 3Dを許可
     )
 
     # 枠線、罫線なし
@@ -321,7 +313,7 @@ def three_demention_model_viewer(selected_filename, selected_type):
                 yaxis=noaxis,
                 zaxis=noaxis,
                 # 3Dモデルの歪みが変わる
-                #aspectratio=dict(x=1.6, y=1.6, z=0.8),
+                # aspectratio=dict(x=1.6, y=1.6, z=0.8),
                 # カメラの指定
                 camera=dict(
                     eye=dict(
@@ -348,9 +340,10 @@ def three_demention_model_viewer(selected_filename, selected_type):
 @app.callback(Output('live-update-graph', 'figure'),
               events=[Event('refresh_interval2', 'interval')])
 def graph_setting():
-    fig = plotly.tools.make_subplots(rows=1, cols=1)
+    # Subplot 作成(1行, 2列)
+    fig = plotly.tools.make_subplots(rows=1, cols=2)
     plot_colorful_graph(fig)
-    # plot_colorful_cercle(fig)
+    plot_colorful_cercle(fig)
     return fig
 
 
@@ -420,18 +413,17 @@ def plot_colorful_graph(fig):
     fig.append_trace(next_graph_setting, 1, 1)
 
 
-'''
 def plot_colorful_cercle(fig):
     # class_sensor.py
-    x,y,z = sensor.get_three_axis()
+    x, y, z = sensor.get_three_axis()
     # Create the cercle with subplots
     trace1 = go.Scatter(
-        #中心位置
+        # (0, 0)を中心に
         x=[0],
         y=[0],
         mode='markers',
         marker=dict(
-            size=200,
+            size=100,
             color='rgb({0},{1},{2},{3})'.format(
                 int(x >> 2),
                 int(y >> 2),
@@ -445,20 +437,16 @@ def plot_colorful_cercle(fig):
                 1.0))
         )
     )
-    fig['layout']['margin'] = {
-        'l': 30, 'r': 20, 'b': 50, 't': 30
-        # 'l': 30, 'r': 10, 'b': 30, 't': 15
-    }
     fig['layout']['plot_bgcolor'] = colors['plot_area']
     fig['layout']['paper_bgcolor'] = colors['background']
     fig['layout']['showlegend'] = False
     fig['layout'].update(
         dict(
             autosize=True,
-            # height=300,
+            height=200,
         )
     )
-    fig['layout']['xaxis1'].update(
+    fig['layout']['xaxis2'].update(
         # range=[-20, 40],
         autorange=True,
         showgrid=False,
@@ -467,7 +455,7 @@ def plot_colorful_cercle(fig):
         ticks='',
         showticklabels=False
     )
-    fig['layout']['yaxis1'].update(
+    fig['layout']['yaxis2'].update(
         autorange=True,
         showgrid=False,
         zeroline=False,
@@ -476,4 +464,3 @@ def plot_colorful_cercle(fig):
         showticklabels=False
     )
     fig.append_trace(trace1, 1, 2)
-'''
