@@ -168,13 +168,13 @@ def camera_position(x, y, z):
     y_accel = ((y / 100) - y0) / y1
     z_accel = ((z / 100) - z0) / z1
 
-    if (x_accel > 0.03):
+    if (x_accel > 0.04):
         camX = camX + x_accel
 
-    if (x_accel > 0.03):
+    if (x_accel > 0.04):
         camY = camY + y_accel
 
-    if (x_accel > 0.03):
+    if (x_accel > 0.04):
         camY = camY + z_accel
 
     return [camX, camY, camZ]

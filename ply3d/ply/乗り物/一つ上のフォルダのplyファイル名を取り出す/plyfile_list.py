@@ -1,5 +1,5 @@
 import os
-plyfolder_path = '.'
+plyfolder_path = '..'
 ply_file = []
 for file in os.listdir(plyfolder_path):
     str = []
