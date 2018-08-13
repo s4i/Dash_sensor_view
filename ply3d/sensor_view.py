@@ -171,9 +171,10 @@ def camera_position(x, y, z):
 
             sum_x, sum_y, sum_z = sumX, sumY, sumZ
 
-            # initialize
+            # グローバル変数 再初期化
             sumX, sumY, sumZ, sum_count = 0, 0, 0, 5
 
+            # 加速度計算
             x_accel = ((sum_x / sum_count) - x0) / x1
             y_accel = ((sum_y / sum_count) - y0) / y1
             z_accel = ((sum_z / sum_count) - z0) / z1
