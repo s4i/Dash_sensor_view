@@ -18,10 +18,8 @@ def main():
     host:     ホストアドレス
     port:     使用するポート
     debug:    ソースコードの更新の度に適用
-    threaded: Dash(ベースはFlask)にスレッドの利用を許可
     '''
-    app.run_server(host='0.0.0.0', port=5000, debug=True,
-                   threaded=True)
+    app.run_server(host='0.0.0.0', port=5000, debug=True)
 
 
 @jit
@@ -121,12 +119,11 @@ def update_sensor():
 カメラ位置関連
 '''
 camX, camY, camZ = 0, 0, 0
+sumX, sumY, sumZ = 0, 0, 0
+sum_count = 5
 
 
 def initial_position(x, y, z):
-    global camX
-    global camY
-    global camZ
     # 起動時に毎回、同じ位置にカメラを置くため、値を修正
     if (500 < x and x < 599):
         x_axis = 500
@@ -143,39 +140,59 @@ def initial_position(x, y, z):
     cameraPhi = ((y_axis - (((1024/2)*(1.65/2.5))/4-45)) * np.pi/180)
 
     # グローバル変数への代入
-    camX = cameraRadius * np.cos(cameraThe) * np.cos(cameraPhi)
-    camY = cameraRadius * np.sin(cameraPhi)
-    camZ = 0  # z軸は使わず、0を代入
+    cam_x = cameraRadius * np.cos(cameraThe) * np.cos(cameraPhi)
+    cam_y = cameraRadius * np.sin(cameraPhi)
+    cam_z = 0  # z軸は使わず、0を代入
+    return [cam_x, cam_y, cam_z]
 
 
 def camera_position(x, y, z):
     global camX
     global camY
     global camZ
+    global sumX
+    global sumY
+    global sumZ
+    global sum_count
 
-    if camX == 0:
-        initial_position(x, y, z)
+    if camX == 0 and camY == 0:
+        camX, camY, camZ = initial_position(x, y, z)
+    else:
+        if sum_count > 0:
+            sumX = sumX + x
+            sumY = sumY + y
+            sumZ = sumZ + z
+            sum_count = sum_count - 1
 
-    '''
-    加速度を利用し、カメラを操作する
-    '''
-    # 0G(加速度0=傾き無しの初期位置)の数値を入れる
-    x0, y0, z0 = 511, 502, 502
-    # 1G(加速度1=傾き90度)の数値から0Gの数値を引いた数値を入れる
-    x1, y1, z1 = 230, 230, 190
+        else:
+            ave_x = sumX / 10
+            ave_y = sumY / 10
+            ave_z = sumZ / 10
 
-    x_accel = ((x / 100) - x0) / x1
-    y_accel = ((y / 100) - y0) / y1
-    z_accel = ((z / 100) - z0) / z1
+            # 加速度を利用し、カメラを操作する
+            # 0G(加速度0=傾き無しの初期位置)の数値を入れる
+            x0, y0, z0 = 511, 502, 502
+            # 1G(加速度1=傾き90度)の数値から0Gの数値を引いた数値を入れる
+            x1, y1, z1 = 230, 230, 190
 
-    if (x_accel > 0.04):
-        camX = camX + x_accel
+            x_accel = ((ave_x / 100) - x0) / x1
+            y_accel = ((ave_y / 100) - y0) / y1
+            z_accel = ((ave_z / 100) - z0) / z1
 
-    if (x_accel > 0.04):
-        camY = camY + y_accel
+            if (x_accel > 0.5):
+                camX = camX + x_accel
 
-    if (x_accel > 0.04):
-        camY = camY + z_accel
+            if (x_accel > 0.5):
+                camY = camY + y_accel
+
+            if (x_accel > 0.5):
+                camY = camY + z_accel
+
+            # init
+            sumX = 0
+            sumY = 0
+            sumZ = 0
+            sum_count = 5
 
     return [camX, camY, camZ]
 
@@ -303,7 +320,9 @@ def three_demention_model_viewer(selected_filename, selected_type):
                 xaxis=noaxis,
                 yaxis=noaxis,
                 zaxis=noaxis,
-                aspectratio=dict(x=1.6, y=1.6, z=0.8),  # Front position
+                # 3Dモデルの歪みが変わる
+                #aspectratio=dict(x=1.6, y=1.6, z=0.8),
+                # カメラの指定
                 camera=dict(
                     eye=dict(
                         x=x_cam,
