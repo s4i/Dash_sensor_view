@@ -13,13 +13,13 @@ from ply3d.class_sensor import Sensor_value
 
 
 def main():
-    # Webサーバ起動
     '''
-    host:     ホストアドレス
-    port:     使用するポート
-    debug:    ソースコードの更新の度に適用
+    Webサーバ起動
+    host: 0.0.0.0<ifconfigで確認したアドレスでWebアプリを指定可能>
+    port: 5000<使用するポート(指定しなければ、8050が利用される)>
+    debug:True<ソースコードの更新の度に自動適用後、再起動>
     '''
-    app.run_server(host='0.0.0.0', port=5000, debug=True)
+    app.run_server(host='0.0.0.0', port=5000, debug=False)
 
 
 @jit
@@ -61,8 +61,8 @@ def create_plyfile_and_folder_dict(plyfolder_path, type_folder):
 
 
 # Global variables
-plyfolder_path = 'ply3d/ply'
-type_folder = ['乗り物', '食べ物', '人物', '生物', '道具']
+plyfolder_path = 'ply3d/ply'  # plyへの相対パス
+type_folder = ['乗り物', '食べ物', '人物', '生物', '道具']  # 分類フォルダ名
 
 # Dictionaly
 plyfile_dict = {}
@@ -79,10 +79,13 @@ folder_dict.items() = [
 value = plyfile_dict['リンゴ']
 print(value) # 'ply3d/ply/food/apple.ply'
 '''
+
+# 辞書化を行う
 create_plyfile_and_folder_dict(plyfolder_path, type_folder)
 
 # Webサーバ設定
 app = dash.Dash(name=__name__, static_folder='static')
+
 # CSS設定(ローカルファイルパスでの指定はNG)
 app.css.append_css(
     {'external_url': 'https://rawgit.com/s4i/Sensor_view/master/static/css/config.css'})
@@ -92,7 +95,7 @@ app.css.append_css(
 センサー値関連
 '''
 # Instance
-sensor = Sensor_value()
+sensor = Sensor_value()  # class_sensor.py
 
 
 def update_sensor():
@@ -149,11 +152,13 @@ def camera_position(x, y, z, zoom):
     global sumZ
     global sum_count
 
-    if zoom == 0 or camX == 0 and camY == 0:
+    if (zoom == 0 or camX == 0 and camY == 0 and camY == 0):
         camX, camY, camZ = initial_position(x, y, z)
 
     elif zoom is not None:
+        # 一度カメラ位置を元に戻す
         camX, camY, camZ = initial_position(x, y, z)
+        # -5~0~5のスライダーの値を反転させて利用
         camX = camX * (1.0 - zoom / 10)
         camY = camY * (1.0 - zoom / 10)
         camZ = camZ * (1.0 - zoom / 10)
@@ -177,11 +182,12 @@ def camera_position(x, y, z, zoom):
             # グローバル変数 再初期化
             sumX, sumY, sumZ, sum_count = 0, 0, 0, 5
 
-            # 加速度計算
+            # 加速度計算(5回の平均と傾き0の差を傾き90で割る)
             x_accel = ((sum_x / sum_count) - x0) / x1
             y_accel = ((sum_y / sum_count) - y0) / y1
             z_accel = ((sum_z / sum_count) - z0) / z1
 
+            # 0.35は加速度によるカメラ位置変更を認める閾値
             if x_accel > 0.35:
                 camX = camX + x_accel
             if x_accel > 0.35:
@@ -241,11 +247,11 @@ app.layout = html.Div([html.Meta(
         ]),
         dcc.Interval(
             id='refresh_interval1',
-            interval=3*1000,  # in milliseconds
+            interval=3*1000,  # ミリ秒
         ),
         dcc.Interval(
             id='refresh_interval2',
-            interval=3*1000,  # in milliseconds
+            interval=3*1000,  # ミリ秒
         ),
     ]),
 ])
@@ -262,6 +268,7 @@ def update_metrics():
     x, y, z = sensor.get_three_axis()
 
     style = {'padding': '5px', 'fontSize': '16px'}
+
     return [
         html.Span('3軸加速度センサ:', style=style),
         html.Span('X軸({:4d})'.format(x), style=style),
@@ -281,6 +288,7 @@ def update_metrics():
     Output('filename-dropdown', 'options'),
     [Input('type-dropdown', 'value')])
 def set_folder(selected_type):
+    # ラジオボタン(分類フォルダ名)
     return [{'label': i, 'value': i} for i in folder_dict[selected_type]]
 
 
@@ -288,10 +296,12 @@ def set_folder(selected_type):
     Output('filename-dropdown', 'value'),
     [Input('filename-dropdown', 'options')])
 def set_filename(available_options):
+    # ラジオボタン(Plyファイル名)
     return available_options[0]['value']
 
 
-before_zoom_val = None
+# 現在のスライダー位置を記録する
+before_zoom_val = 0
 
 
 @app.callback(
@@ -325,10 +335,9 @@ def three_demention_model_viewer(selected_filename, selected_type, zoom_val):
     '''
     x, y, z = sensor.get_three_axis()  # class_sensor.py
 
-    if before_zoom_val is zoom_val:
-        zoom_val = None
-    else:
+    if before_zoom_val != zoom_val:
         before_zoom_val = zoom_val
+        zoom_val = None
 
     x_cam, y_cam, z_cam = camera_position(x, y, z, zoom_val)
 
@@ -398,17 +407,21 @@ def plot_colorful_graph(fig):
     # class_sensor.py
     x, y, z = sensor.get_three_axis()
 
+    # グラフの追加・削除
     context.append_data(context.t, datetime.datetime.now())
     context.append_data(context.zero_to_hundred, sensor.get_zero_to_hundred())
 
-    # Create the graph with subplots
+    # 上下左右の間隔設定
     fig['layout']['margin'] = {
         'l': 30, 'r': 20, 'b': 30, 't': 0
     }
+    # グラフの高さ
     fig['layout']['yaxis1'].update(
         range=[0, 115]
     )
+    # 凡例削除
     fig['layout']['showlegend'] = False
+    # グラフサイズ設定
     fig['layout'].update(
         dict(
             autosize=True,
@@ -442,6 +455,7 @@ def plot_colorful_graph(fig):
 def plot_colorful_cercle(fig):
     # class_sensor.py
     x, y, z = sensor.get_three_axis()
+
     # Create the cercle with subplots
     trace1 = go.Scatter(
         # (0, 0)を中心に
@@ -463,13 +477,16 @@ def plot_colorful_cercle(fig):
                 1.0))
         )
     )
+    # 凡例削除
     fig['layout']['showlegend'] = False
+    # 描写エリアのサイズ設定
     fig['layout'].update(
         dict(
             autosize=True,
             height=200,
         )
     )
+    # X軸設定
     fig['layout']['xaxis2'].update(
         autorange=True,
         showgrid=False,
@@ -478,6 +495,7 @@ def plot_colorful_cercle(fig):
         ticks='',
         showticklabels=False
     )
+    # Y軸設定
     fig['layout']['yaxis2'].update(
         autorange=True,
         showgrid=False,
