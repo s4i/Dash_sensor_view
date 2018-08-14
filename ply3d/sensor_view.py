@@ -87,11 +87,6 @@ app = dash.Dash(name=__name__, static_folder='static')
 app.css.append_css(
     {'external_url': 'https://rawgit.com/s4i/Sensor_view/master/static/css/config.css'})
 
-colors = {
-    'background': '#ffffff',
-    'plot_area': '#ffffff',
-    'text': '#000000',
-}
 
 '''
 センサー値関連
@@ -107,7 +102,7 @@ def update_sensor():
     乱数が生成され、それが使われる。
     Falseの場合、x,y,zに入った値を反映できる。
     '''
-    sensor.update_sensor(isRandom=True,
+    sensor.update_sensor(isRandom=False,
                          pyro=100,
                          x=500, y=500, z=500,
                          )
@@ -133,18 +128,19 @@ def initial_position(x, y, z):
         y_axis = y
 
     # 基本となるカメラ座標を計算
-    cameraRadius = 2
     cameraThe = ((x_axis + (90-((1024/2)*(1.65/2.5))/4)) * np.pi/180)
     cameraPhi = ((y_axis - (((1024/2)*(1.65/2.5))/4-45)) * np.pi/180)
 
     # グローバル変数への代入
+    cameraRadius = 2  # 標準倍率
     cam_x = cameraRadius * np.cos(cameraThe) * np.cos(cameraPhi)
     cam_y = cameraRadius * np.sin(cameraPhi)
     cam_z = 0  # z軸は使わず、0を代入
+
     return [cam_x, cam_y, cam_z]
 
 
-def camera_position(x, y, z):
+def camera_position(x, y, z, zoom):
     global camX
     global camY
     global camZ
@@ -153,8 +149,15 @@ def camera_position(x, y, z):
     global sumZ
     global sum_count
 
-    if camX == 0 and camY == 0:
+    if zoom == 0 or camX == 0 and camY == 0:
         camX, camY, camZ = initial_position(x, y, z)
+
+    elif zoom is not None:
+        camX, camY, camZ = initial_position(x, y, z)
+        camX = camX * (1.0 - zoom / 10)
+        camY = camY * (1.0 - zoom / 10)
+        camZ = camZ * (1.0 - zoom / 10)
+
     else:
         if sum_count > 0:
             sumX = sumX + x
@@ -198,13 +201,15 @@ app.layout = html.Div([html.Meta(
     html.Div([
         html.Div('センサ値',
                  style={'color': 'red',
-                        'fontsize': 12,
+                        'fontsize': 16,
                         'font-weight': 'bold'}),
         html.Div(id='live-update-text'),
-        html.Div('3Dモデル切り替え',
-                 style={'color': 'blue',
-                        'fontsize': 12,
-                        'font-weight': 'bold'}),
+        html.Div(
+            '3Dモデル切り替え',
+            style={'color': 'blue',
+                   'fontsize': 16,
+                   'font-weight': 'bold'}
+        ),
         dcc.RadioItems(
             id='type-dropdown',
             options=[{'label': k, 'value': k}
@@ -218,6 +223,18 @@ app.layout = html.Div([html.Meta(
             dcc.Graph(id='live-update-model3d',)
             # config={'displayModeBar': False})
         ]),
+        html.Div(
+            dcc.Slider(
+                id='zoom_slider',
+                min=-5,
+                max=5,
+                value=0,
+                step=1,
+                marks={i: '{:1d}'.format(i) for i in range(-5, 6, 1)},
+            ),
+            style={'margin-bottom': 10, 'width': '100%',
+                   'display': 'inline-block'},
+        ),
         html.Div([
             dcc.Graph(id='live-update-graph',)
             # config={'displayModeBar': False})
@@ -231,7 +248,7 @@ app.layout = html.Div([html.Meta(
             interval=3*1000,  # in milliseconds
         ),
     ]),
-], style={'backgroundColor': colors['background'], 'color': colors['text']})
+])
 
 
 @app.callback(Output('live-update-text', 'children'),
@@ -243,7 +260,6 @@ def update_metrics():
     # センサ値取得
     pyro = sensor.get_zero_to_hundred()
     x, y, z = sensor.get_three_axis()
-    x_cam, y_cam, z_cam = camera_position(x, y, z)
 
     style = {'padding': '5px', 'fontSize': '16px'}
     return [
@@ -255,9 +271,9 @@ def update_metrics():
         html.Span('({:3d})'.format(pyro), style=style),
         html.Div(),  # 改行
         html.Span(' カメラ位置:', style=style),
-        html.Span('X軸({:3.3f})'.format(x_cam), style=style),
-        html.Span('Y軸({:3.3f})'.format(y_cam), style=style),
-        html.Span('Z軸({:3.3f})'.format(z_cam), style=style),
+        html.Span('X軸({:3.3f})'.format(camX), style=style),
+        html.Span('Y軸({:3.3f})'.format(camY), style=style),
+        html.Span('Z軸({:3.3f})'.format(camZ), style=style),
     ]
 
 
@@ -275,12 +291,18 @@ def set_filename(available_options):
     return available_options[0]['value']
 
 
+before_zoom_val = None
+
+
 @app.callback(
     Output('live-update-model3d', 'figure'),
     [Input('filename-dropdown', 'value'),
-     Input('type-dropdown', 'value')],
+     Input('type-dropdown', 'value'),
+     Input('zoom_slider', 'value')],
     events=[Event('refresh_interval1', 'interval')])
-def three_demention_model_viewer(selected_filename, selected_type):
+def three_demention_model_viewer(selected_filename, selected_type, zoom_val):
+    global before_zoom_val
+
     # Subplot を作成
     fig = plotly.tools.make_subplots(
         rows=1,
@@ -302,13 +324,19 @@ def three_demention_model_viewer(selected_filename, selected_type):
     カメラ位置
     '''
     x, y, z = sensor.get_three_axis()  # class_sensor.py
-    x_cam, y_cam, z_cam = camera_position(x, y, z)
+
+    if before_zoom_val is zoom_val:
+        zoom_val = None
+    else:
+        before_zoom_val = zoom_val
+
+    x_cam, y_cam, z_cam = camera_position(x, y, z, zoom_val)
 
     fig['layout'].update(
         dict(
             autosize=True,
             # width=900,  # autosize or manual size
-            height=590,
+            height=540,
             scene=dict(
                 xaxis=noaxis,
                 yaxis=noaxis,
@@ -377,9 +405,6 @@ def plot_colorful_graph(fig):
     fig['layout']['margin'] = {
         'l': 30, 'r': 20, 'b': 30, 't': 0
     }
-    fig['layout']['plot_bgcolor'] = colors['plot_area']
-    fig['layout']['paper_bgcolor'] = colors['background']
-    fig['layout']['font'] = {'color': colors['text']}
     fig['layout']['yaxis1'].update(
         range=[0, 115]
     )
@@ -438,8 +463,6 @@ def plot_colorful_cercle(fig):
                 1.0))
         )
     )
-    fig['layout']['plot_bgcolor'] = colors['plot_area']
-    fig['layout']['paper_bgcolor'] = colors['background']
     fig['layout']['showlegend'] = False
     fig['layout'].update(
         dict(
@@ -448,7 +471,6 @@ def plot_colorful_cercle(fig):
         )
     )
     fig['layout']['xaxis2'].update(
-        # range=[-20, 40],
         autorange=True,
         showgrid=False,
         zeroline=False,
