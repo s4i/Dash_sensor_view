@@ -105,7 +105,7 @@ def update_sensor():
     乱数が生成され、それが使われる。
     Falseの場合、x,y,zに入った値を反映できる。
     '''
-    sensor.update_sensor(isRandom=False,
+    sensor.update_sensor(isRandom=True,
                          pyro=100,
                          x=500, y=500, z=500,
                          )

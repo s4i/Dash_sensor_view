@@ -1,4 +1,7 @@
 # Sensor_view
+## 表示画面
+![](markdown_pict/display.png)
+
 ## 動作環境
 - ### Python3.0以上が動作するPC
 
