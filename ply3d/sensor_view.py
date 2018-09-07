@@ -9,7 +9,7 @@ from numba import jit
 import numpy as np
 import os
 import ply3d.view_control as vc
-from ply3d.class_sensor import Sensor_value
+from ply3d.class_sensor import SensorValue
 
 
 def main():
@@ -95,7 +95,7 @@ app.css.append_css(
 センサー値関連
 '''
 # Instance
-sensor = Sensor_value()  # class_sensor.py
+sensor = SensorValue()  # class_sensor.py
 
 
 def update_sensor():

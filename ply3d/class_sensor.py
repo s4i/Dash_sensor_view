@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class Sensor_value:
+class SensorValue:
     def __init__(self):
         self.pyroelectric = 0  # pyroelectric:焦電
         self.x = 0

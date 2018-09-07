@@ -78,7 +78,7 @@ def map_z2color(zval, colormap, vmin, vmax):
     if vmin > vmax:
         raise ValueError('incorrect relation between vmin and vmax')
     t = (zval-vmin)/float((vmax-vmin))  # normalize val
-    R, G, B, alpha = colormap(t)  # need alpha.
+    R, G, B, _ = colormap(t)  # need alpha.
     return 'rgb('+'{:d}'.format(int(R*255+0.5)) + ',' \
         + '{:d}'.format(int(G*255+0.5)) + ',' \
         + '{:d}'.format(int(B*255+0.5))+')'
