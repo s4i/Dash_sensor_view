@@ -458,9 +458,8 @@ def plot_colorful_cercle(fig):
 
     # Create the cercle with subplots
     trace1 = go.Scatter(
-        # (0, 0)を中心に
-        x0=[0, 1],
-        y0=[0, 1],
+        x=[0, 1, 2],  # no x0, x1
+        y=[0, 2, 3],  # no y0, y1
         mode='markers',
         marker=dict(
             size=100,
